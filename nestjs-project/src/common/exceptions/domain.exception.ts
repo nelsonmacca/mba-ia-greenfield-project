@@ -48,3 +48,13 @@ export class TokenReuseDetectedException extends DomainException {
     );
   }
 }
+
+export class FileTooLargeException extends DomainException {
+  constructor(maxBytes: number) {
+    super(
+      'FILE_TOO_LARGE',
+      400,
+      `File exceeds the maximum allowed size of ${maxBytes} bytes`,
+    );
+  }
+}

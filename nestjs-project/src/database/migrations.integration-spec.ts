@@ -37,6 +37,14 @@ describe('Database migrations (integration)', () => {
       ),
       dataSource.query(`DROP TABLE IF EXISTS "migrations" CASCADE`),
     ]);
+
+    // Dropping the tables does not drop the enum type the migration creates.
+    // A leftover type from a prior run makes runMigrations() fail with
+    // 'type "verification_tokens_type_enum" already exists' when the full
+    // suite runs. Drop it explicitly so the migration can recreate it.
+    await dataSource.query(
+      `DROP TYPE IF EXISTS "public"."verification_tokens_type_enum" CASCADE`,
+    );
   });
 
   afterAll(async () => {

@@ -64,4 +64,4 @@ Frontend upload and player surfaces are deferred to a later frontend phase (`nex
 
 ## Resolved Issues
 
-_No issues resolved yet._
+- **SI-03.2 (Video entity + migration) implemented.** The `Video` entity (linked to `Channel` via `channel_id` FK, `onDelete: CASCADE`), the `video_status` enum (`draft/uploaded/queued/processing/ready/failed`, default `draft`), `(channel_id)` + `(status)` indexes, and the CLI-generated `CreateVideos` migration are in place and verified against a fresh DB. The `migrations.integration-spec.ts` advisory pattern (drop the enum type explicitly — the `bb0010e` lesson) was extended to `video_status`. A Postgres deadlock surfaced when `videos` joined the parallel `DROP TABLE ... CASCADE` cleanup; resolved by making the drops sequential. No new libraries (TypeORM-only; UUID PK per TD-05). Full suite (162 tests) + `tsc --noEmit` green.

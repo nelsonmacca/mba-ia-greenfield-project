@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
-**Status:** planned (SIs detailed; implementation not started)
-**SIs:** 0/8 implemented — all 8 fully specified in `phase-03-videos.md`
+**Status:** in progress
+**SIs:** 2/8 implemented — all 8 fully specified in `phase-03-videos.md`
 
 > Documentation-only sessions so far: (1) technical decisions + initial plan (commit `d300a90`); (2) expansion of the SI outline into complete SIs with Technical Specifications, Events/Messages, Dependency Map, and Deliverables. **No application code, Docker Compose changes, or dependency installs have been made.**
 
@@ -18,8 +18,12 @@
 - **Tests:** infra/bootstrap smoke; no new unit tests for compose itself
 
 ### SI-03.2 — Video Entity & Migration
-- **Status:** not started
-- **Tests:** video.entity.integration-spec, migrations.integration-spec (updated for `video_status` enum cleanup)
+- **Status:** done (commit pending)
+- **Tests:** `video.entity.integration-spec.ts` (8 cases: id/timestamp/default-status, null metadata, FK rejection, invalid-enum rejection, title max-length, channel cascade-delete, relation load, full-metadata persistence), `videos.module.spec.ts` (DI compilation), `migrations.integration-spec.ts` (updated: `videos` in managed tables, `video_status` enum cleanup, 3 migrations, revert removes `videos`)
+- **Files created:** `src/videos/entities/video.entity.ts` (`Video` + `VideoStatus` enum), `src/videos/videos.module.ts` (`TypeOrmModule.forFeature([Video])`), `src/database/migrations/1782446117064-CreateVideos.ts` (CLI-generated), plus the two test files above
+- **Files updated:** `src/app.module.ts` (register `VideosModule`), `src/test/create-test-data-source.ts` (`cleanAllTables` deletes `videos` first), `src/database/migrations.integration-spec.ts`
+- **Notes:** `size_bytes` is `bigint`, which TypeORM maps to a JS `string` to preserve precision — entity field typed `string | null`. FK to `channels` uses `onDelete: 'CASCADE'`. Migration cleanup in the test was switched from parallel (`Promise.all`) to **sequential** `DROP TABLE ... CASCADE` to avoid a Postgres deadlock once `videos` (FK → channels → users) joined the managed-table set.
+- **Validations:** full `npm test --runInBand` (25 suites / 162 tests) green; `npx tsc --noEmit` exits 0; fresh `docker compose down -v && up -d --build` + `migration:run` applies all 3 migrations cleanly.
 
 ### SI-03.3 — Storage Module & Presigned Upload (draft creation)
 - **Status:** not started

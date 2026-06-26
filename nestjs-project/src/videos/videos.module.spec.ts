@@ -9,12 +9,13 @@ import storageConfig from '../config/storage.config';
 import { User } from '../users/entities/user.entity';
 import { createTestDataSource } from '../test/create-test-data-source';
 import { Video } from './entities/video.entity';
-import { VideosModule } from './videos.module';
+import { VideoProcessor } from './video-processor';
+import { VideosModule, workerOnlyProviders } from './videos.module';
 
 const ALL_ENTITIES = [User, Channel, RefreshToken, VerificationToken, Video];
 
 describe('VideosModule', () => {
-  it('should compile with its entities, Storage/Queue modules, controller and producer', async () => {
+  it('compiles with its entities, Storage/Queue modules, controller and producer', async () => {
     const module = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -29,4 +30,15 @@ describe('VideosModule', () => {
     expect(module).toBeDefined();
     await module.close();
   }, 30000);
+
+  describe('workerOnlyProviders (WORKER_MODE gate — TD-04)', () => {
+    it('registers the BullMQ consumer only when WORKER_MODE=true', () => {
+      expect(workerOnlyProviders('true')).toContain(VideoProcessor);
+    });
+
+    it('does not register the consumer in API mode', () => {
+      expect(workerOnlyProviders(undefined)).toEqual([]);
+      expect(workerOnlyProviders('false')).toEqual([]);
+    });
+  });
 });

@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in progress
-**SIs:** 4/8 implemented — all 8 fully specified in `phase-03-videos.md`
+**SIs:** 5/8 implemented — all 8 fully specified in `phase-03-videos.md`
 
 > Documentation-only sessions so far: (1) technical decisions + initial plan (commit `d300a90`); (2) expansion of the SI outline into complete SIs with Technical Specifications, Events/Messages, Dependency Map, and Deliverables. **No application code, Docker Compose changes, or dependency installs have been made.**
 
@@ -45,8 +45,13 @@
 - **Validations:** SI-03.4 targeted suites green (31 + 11 e2e); `tsc --noEmit` exits 0; **SI-03.4's own files are lint-clean** (`eslint` exit 0 on them). Note: project-wide `npm run lint` exits 1 due to **pre-existing** debt unrelated to SI-03.4 — see `validation.md`. Full suite + full e2e recorded at task close.
 
 ### SI-03.5 — Video Worker (BullMQ consumer + FFmpeg/ffprobe)
-- **Status:** not started
-- **Tests:** video-processing.service.spec (unit), video-processing.service.integration-spec (real MinIO + FFmpeg + DB, tiny fixture)
+- **Status:** done (commit pending)
+- **Tests:** `video-processing.service.spec.ts` (unit — not-found no-retry, idempotent skip when `ready`, happy path download→probe→thumbnail→ready with metadata, processing-before-ffmpeg ordering, final-attempt failure → `failed`+error+rethrow, non-final failure → rethrow without marking failed), `video-processing.service.integration-spec.ts` (**real DB + MinIO + FFmpeg** — fixture processed to `ready` with duration + real thumbnail object, corrupt source → `failed`+error, idempotent re-delivery; runs in the **video-worker** container, auto-skips with a warning where ffmpeg is absent), `videos.module.spec.ts` (compile + `workerOnlyProviders` gate asserts the consumer registers only with `WORKER_MODE=true`). Runs: unit 7 + module gate green in `nestjs-api`; integration 3/3 green in `video-worker`.
+- **Files created:** `src/videos/ffmpeg.service.ts` (`probeDurationSeconds`, `generateThumbnail` over `fluent-ffmpeg`; optional `FFMPEG_PATH`/`FFPROBE_PATH` env overrides), `src/videos/video-processing.service.ts` (orchestration + status transitions + temp cleanup), `src/videos/video-processor.ts` (`@Processor(VIDEO_PROCESSING_QUEUE)` `WorkerHost`, computes final-attempt from `job.attemptsMade`/`opts.attempts`, `@OnWorkerEvent('failed')` log), `src/videos/video-processing.service.spec.ts`, `src/videos/video-processing.service.integration-spec.ts`, `src/videos/__fixtures__/sample.mp4` (~8KB, 1s testsrc).
+- **Files updated:** `src/storage/storage.service.ts` (`downloadToFile` streams GetObject→disk, `uploadFile` puts a local file — worker-only byte handling), `src/videos/videos.service.ts` (`thumbnailObjectKey` helper), `src/videos/videos.module.ts` (provide `FfmpegService` + `VideoProcessingService` always; `VideoProcessor` only via `workerOnlyProviders(WORKER_MODE)`), `src/videos/videos.module.spec.ts` (gate assertions).
+- **Dependencies installed (authorized):** `fluent-ffmpeg@^2.1.3`, `@types/fluent-ffmpeg@^2.1.28` (versions match `library-refs.md`). `npm audit fix` deliberately not run. FFmpeg/ffprobe system binaries already in `Dockerfile.worker` (SI-03.1).
+- **Decisions fixed at implementation:** duration from ffprobe `format.duration` (rounded int seconds); thumbnail = single frame at `50%`, `640x?`, uploaded to `videos/{id}/thumbnail.jpg` as `image/jpeg`; status flow `queued/uploaded → processing → ready` (or `failed`); idempotent skip when already `ready`; **retry semantics** — on error the service rethrows so BullMQ retries (`attempts:3`), marking `failed`+`processing_error` only on the final attempt; temp dir per job under `os.tmpdir()`, removed in `finally`. **Worker-only gating** (TD-04): the `@Processor` is registered only when `WORKER_MODE=true`, so the API never consumes jobs.
+- **Validations:** `tsc --noEmit` exits 0; `npm run lint` exits 0 (project-wide); api full suite green (ffmpeg integration auto-skipped with warning); **worker** ran the ffmpeg integration 3/3. Thumbnail generation included per the plan (SI-03.6 is the read endpoint, not the thumbnail). Streaming/download (SI-03.7) remain out of scope.
 
 ### SI-03.6 — Video Status & Metadata Read Endpoint
 - **Status:** not started

@@ -42,6 +42,11 @@ export function sourceObjectKey(videoId: string): string {
   return `videos/${videoId}/source`;
 }
 
+/** Builds the storage key for a video's generated thumbnail (TD-04). */
+export function thumbnailObjectKey(videoId: string): string {
+  return `videos/${videoId}/thumbnail.jpg`;
+}
+
 @Injectable()
 export class VideosService {
   constructor(

@@ -1,3 +1,7 @@
+import { createReadStream, createWriteStream } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { pipeline } from 'node:stream/promises';
+import type { Readable } from 'node:stream';
 import { Inject, Injectable } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import {
@@ -98,6 +102,40 @@ export class StorageService {
       }
       throw err;
     }
+  }
+
+  /**
+   * Streams an object's bytes to a local file (worker-side; the API never does
+   * this — TD-01/TD-06). Used by the video worker to read the source for
+   * FFmpeg/ffprobe without loading the whole object into memory.
+   */
+  async downloadToFile(key: string, destPath: string): Promise<void> {
+    const response = await this.client.send(
+      new GetObjectCommand({ Bucket: this.config.bucket, Key: key }),
+    );
+    const body = response.Body as Readable | undefined;
+    if (!body) {
+      throw new Error(`Empty body for object ${key}`);
+    }
+    await pipeline(body, createWriteStream(destPath));
+  }
+
+  /** Uploads a local file to the given key (worker-side; e.g. the thumbnail). */
+  async uploadFile(
+    key: string,
+    srcPath: string,
+    contentType: string,
+  ): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.config.bucket,
+        Key: key,
+        Body: createReadStream(srcPath),
+        ContentType: contentType,
+        // S3/MinIO need a known length for stream bodies; read once for the cap.
+        ContentLength: (await readFile(srcPath)).byteLength,
+      }),
+    );
   }
 
   private isNotFound(err: unknown): boolean {

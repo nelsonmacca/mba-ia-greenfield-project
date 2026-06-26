@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in progress
-**SIs:** 3/8 implemented — all 8 fully specified in `phase-03-videos.md`
+**SIs:** 4/8 implemented — all 8 fully specified in `phase-03-videos.md`
 
 > Documentation-only sessions so far: (1) technical decisions + initial plan (commit `d300a90`); (2) expansion of the SI outline into complete SIs with Technical Specifications, Events/Messages, Dependency Map, and Deliverables. **No application code, Docker Compose changes, or dependency installs have been made.**
 
@@ -35,8 +35,14 @@
 - **Validations:** SI-03.3 targeted suites green (26 + 5 e2e); `npx tsc --noEmit` exits 0; `npm run lint` exits 0; `migration:run` applies all 3 migrations on a fresh DB. Full-suite run recorded at task close.
 
 ### SI-03.4 — Upload Confirmation & Job Publishing
-- **Status:** not started
-- **Tests:** video-producer.service.spec (unit), videos.service.integration (real Redis), videos.e2e
+- **Status:** done (commit pending)
+- **Tests:** `video-producer.service.spec.ts` (unit — job name + `{ videoId, objectKey }` payload, mocked queue), `videos.service.spec.ts` (unit — confirm branches: VIDEO_NOT_FOUND, FORBIDDEN_VIDEO_ACCESS, UPLOAD_NOT_CONFIRMED, FILE_TOO_LARGE on real-object size, happy path persists real metadata + transitions to queued + enqueues once, enqueue-while-uploaded ordering, idempotency for queued/processing/ready/failed), `videos.service.integration-spec.ts` (real DB + MinIO + **real Redis** — confirm enqueues exactly one `process-video` job asserted via `queue.getJobs`, idempotent re-confirm = 1 job, UPLOAD_NOT_CONFIRMED with no object, ownership, not-found), `videos.e2e-spec.ts` (confirm 200 → queued + job asserted, 409/403/404/400-uuid/401). Targeted run: 31 unit/integration + 11 e2e green.
+- **Files created:** `src/videos/video-processing.constants.ts` (`VIDEO_PROCESSING_QUEUE`, `PROCESS_VIDEO_JOB`, `ProcessVideoJobData`), `src/queue/queue.module.ts` (`BullModule.forRootAsync` from `queueConfig` + `registerQueue` with `attempts:3` / exponential backoff / `removeOnComplete` / `removeOnFail:false`), `src/videos/video-producer.service.ts` (`enqueueProcessing`), `src/videos/video-producer.service.spec.ts`.
+- **Files updated:** `src/common/exceptions/domain.exception.ts` (`VideoNotFoundException` 404, `ForbiddenVideoAccessException` 403, `UploadNotConfirmedException` 409), `src/videos/videos.service.ts` (`confirmUpload`), `src/videos/videos.controller.ts` (`POST /videos/:id/confirm`, `ParseUUIDPipe`), `src/videos/videos.module.ts` (import `QueueModule`, provide `VideoProducerService`), `src/videos/videos.module.spec.ts` (load `queueConfig`), `src/videos/videos.service.spec.ts` + `src/videos/videos.service.integration-spec.ts` + `test/videos.e2e-spec.ts` (confirm coverage + lint-clean typing).
+- **Dependencies installed (authorized):** `@nestjs/bullmq@^11.0.4`, `bullmq@^5.79.1` (versions match `library-refs.md`). `npm audit fix` deliberately not run.
+- **Decisions fixed at implementation:** job options `attempts:3`, `backoff exponential 5000ms`, `removeOnComplete:true`, `removeOnFail:false`. Re-confirm idempotency: a video already `queued`/`processing`/`ready`/`failed` returns its current status with **no** second job. Ordering/compensation: persist `uploaded`, enqueue, then persist `queued` — a publish failure leaves the video `uploaded` (re-confirmable) rather than `queued` with no job. Ownership: video's `channel_id` must equal the authenticated user's channel id (`channelRepository.findOneBy({ user_id })`). Confirmed `size_bytes`/`content_type` are re-read from `HeadObject` and re-validated ≤10GB.
+- **Test isolation:** the queue is drained with `queue.obliterate({ force: true })` in `beforeEach` (integration + e2e) and closed in `afterAll`.
+- **Validations:** SI-03.4 targeted suites green (31 + 11 e2e); `tsc --noEmit` exits 0; **SI-03.4's own files are lint-clean** (`eslint` exit 0 on them). Note: project-wide `npm run lint` exits 1 due to **pre-existing** debt unrelated to SI-03.4 — see `validation.md`. Full suite + full e2e recorded at task close.
 
 ### SI-03.5 — Video Worker (BullMQ consumer + FFmpeg/ffprobe)
 - **Status:** not started
@@ -58,5 +64,6 @@
 
 - ~~Complete context7 doc fetch and fill `library-refs.md` (`context7_id`, `fetched_at`, verified API notes).~~ Done at SI-03.3 for the AWS SDK (re-verified against installed `@aws-sdk@^3.1075.0`). BullMQ/fluent-ffmpeg docs to be re-confirmed when SI-03.4/03.5 install those libs.
 - Confirm FFmpeg install path in the worker Dockerfile and `fluent-ffmpeg` binary resolution.
-- Decide exact BullMQ job options (`attempts`/`backoff` values) and queue test-isolation strategy.
-- Finalize re-confirm idempotency behavior (SI-03.4) and worker re-delivery idempotency (SI-03.5).
+- ~~Decide exact BullMQ job options (`attempts`/`backoff` values) and queue test-isolation strategy.~~ Done at SI-03.4: `attempts:3` / exponential backoff 5000ms / `removeOnComplete:true` / `removeOnFail:false`; isolation via `queue.obliterate({ force: true })` per test.
+- ~~Finalize re-confirm idempotency behavior (SI-03.4)~~ Done: queued/processing/ready/failed short-circuit (no duplicate job). Worker re-delivery idempotency (SI-03.5) still open.
+- **NEW — pre-existing project-wide lint failure** (`npm run lint` exits 1, ~168 baseline errors at SI-03.3 HEAD; masked earlier by `| tail`). Deferred to a separate lint/type-cleanup task per user direction — see `validation.md` advisory.

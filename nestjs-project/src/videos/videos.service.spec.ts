@@ -1,29 +1,54 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { FileTooLargeException } from '../common/exceptions/domain.exception';
+import {
+  FileTooLargeException,
+  ForbiddenVideoAccessException,
+  UploadNotConfirmedException,
+  VideoNotFoundException,
+} from '../common/exceptions/domain.exception';
 import storageConfig from '../config/storage.config';
 import { Channel } from '../channels/entities/channel.entity';
 import { StorageService } from '../storage/storage.service';
 import { Video, VideoStatus } from './entities/video.entity';
+import { VideoProducerService } from './video-producer.service';
 import { VideosService, sourceObjectKey } from './videos.service';
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024 * 1024;
 
 describe('VideosService (unit)', () => {
   let service: VideosService;
-  let videoRepository: { create: jest.Mock; save: jest.Mock };
-  let channelRepository: { findOneByOrFail: jest.Mock };
+  let videoRepository: {
+    create: jest.Mock;
+    save: jest.Mock;
+    findOneBy: jest.Mock;
+  };
+  let channelRepository: { findOneByOrFail: jest.Mock; findOneBy: jest.Mock };
   let storageService: jest.Mocked<
-    Pick<StorageService, 'getPresignedUploadUrl'>
+    Pick<
+      StorageService,
+      'getPresignedUploadUrl' | 'objectExists' | 'headObject'
+    >
+  >;
+  let videoProducer: jest.Mocked<
+    Pick<VideoProducerService, 'enqueueProcessing'>
   >;
 
   beforeEach(async () => {
     videoRepository = {
-      create: jest.fn((data) => data),
+      create: jest.fn((data: Partial<Video>): Video => data as Video),
       save: jest.fn(),
+      findOneBy: jest.fn(),
     };
-    channelRepository = { findOneByOrFail: jest.fn() };
-    storageService = { getPresignedUploadUrl: jest.fn() };
+    channelRepository = {
+      findOneByOrFail: jest.fn(),
+      findOneBy: jest.fn(),
+    };
+    storageService = {
+      getPresignedUploadUrl: jest.fn(),
+      objectExists: jest.fn(),
+      headObject: jest.fn(),
+    };
+    videoProducer = { enqueueProcessing: jest.fn() };
 
     const module = await Test.createTestingModule({
       providers: [
@@ -31,6 +56,7 @@ describe('VideosService (unit)', () => {
         { provide: getRepositoryToken(Video), useValue: videoRepository },
         { provide: getRepositoryToken(Channel), useValue: channelRepository },
         { provide: StorageService, useValue: storageService },
+        { provide: VideoProducerService, useValue: videoProducer },
         {
           provide: storageConfig.KEY,
           useValue: { maxUploadBytes: MAX_UPLOAD_BYTES },
@@ -64,10 +90,9 @@ describe('VideosService (unit)', () => {
       channelRepository.findOneByOrFail.mockResolvedValue({
         id: 'channel-9',
       } as Channel);
-      videoRepository.save.mockImplementation(async (v) => ({
-        id: 'video-7',
-        ...v,
-      }));
+      videoRepository.save.mockImplementation((v: Video) =>
+        Promise.resolve({ ...v, id: 'video-7' }),
+      );
       storageService.getPresignedUploadUrl.mockResolvedValue(
         'https://signed/upload',
       );
@@ -93,10 +118,9 @@ describe('VideosService (unit)', () => {
       channelRepository.findOneByOrFail.mockResolvedValue({
         id: 'channel-9',
       } as Channel);
-      videoRepository.save.mockImplementation(async (v) => ({
-        id: 'video-7',
-        ...v,
-      }));
+      videoRepository.save.mockImplementation((v: Video) =>
+        Promise.resolve({ ...v, id: 'video-7' }),
+      );
       storageService.getPresignedUploadUrl.mockResolvedValue('url');
 
       await service.createDraft('user-1', dto);
@@ -110,5 +134,140 @@ describe('VideosService (unit)', () => {
         }),
       );
     });
+  });
+
+  describe('confirmUpload', () => {
+    function draftVideo(overrides: Partial<Video> = {}): Video {
+      return {
+        id: 'video-7',
+        channel_id: 'channel-9',
+        status: VideoStatus.DRAFT,
+        object_key: 'videos/video-7/source',
+        content_type: 'video/mp4',
+        size_bytes: '1024',
+        ...overrides,
+      } as Video;
+    }
+
+    it('throws VIDEO_NOT_FOUND for an unknown id', async () => {
+      videoRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(
+        service.confirmUpload('user-1', 'missing'),
+      ).rejects.toBeInstanceOf(VideoNotFoundException);
+    });
+
+    it('throws FORBIDDEN_VIDEO_ACCESS when the video is not in the user channel', async () => {
+      videoRepository.findOneBy.mockResolvedValue(draftVideo());
+      channelRepository.findOneBy.mockResolvedValue({
+        id: 'other-channel',
+      } as Channel);
+
+      await expect(
+        service.confirmUpload('user-1', 'video-7'),
+      ).rejects.toBeInstanceOf(ForbiddenVideoAccessException);
+      expect(videoProducer.enqueueProcessing).not.toHaveBeenCalled();
+    });
+
+    it('throws UPLOAD_NOT_CONFIRMED when the object is absent', async () => {
+      videoRepository.findOneBy.mockResolvedValue(draftVideo());
+      channelRepository.findOneBy.mockResolvedValue({
+        id: 'channel-9',
+      } as Channel);
+      storageService.objectExists.mockResolvedValue(false);
+
+      await expect(
+        service.confirmUpload('user-1', 'video-7'),
+      ).rejects.toBeInstanceOf(UploadNotConfirmedException);
+      expect(videoProducer.enqueueProcessing).not.toHaveBeenCalled();
+    });
+
+    it('throws FILE_TOO_LARGE when the real object exceeds the cap', async () => {
+      videoRepository.findOneBy.mockResolvedValue(draftVideo());
+      channelRepository.findOneBy.mockResolvedValue({
+        id: 'channel-9',
+      } as Channel);
+      storageService.objectExists.mockResolvedValue(true);
+      storageService.headObject.mockResolvedValue({
+        size_bytes: MAX_UPLOAD_BYTES + 1,
+        content_type: 'video/mp4',
+      });
+
+      await expect(
+        service.confirmUpload('user-1', 'video-7'),
+      ).rejects.toBeInstanceOf(FileTooLargeException);
+      expect(videoProducer.enqueueProcessing).not.toHaveBeenCalled();
+    });
+
+    it('confirms, persists real metadata, transitions to queued and enqueues exactly one job', async () => {
+      const video = draftVideo();
+      videoRepository.findOneBy.mockResolvedValue(video);
+      channelRepository.findOneBy.mockResolvedValue({
+        id: 'channel-9',
+      } as Channel);
+      storageService.objectExists.mockResolvedValue(true);
+      storageService.headObject.mockResolvedValue({
+        size_bytes: 4096,
+        content_type: 'video/webm',
+      });
+      videoRepository.save.mockImplementation((v: Video) => Promise.resolve(v));
+
+      const result = await service.confirmUpload('user-1', 'video-7');
+
+      expect(result).toEqual({ id: 'video-7', status: VideoStatus.QUEUED });
+      expect(video.size_bytes).toBe('4096');
+      expect(video.content_type).toBe('video/webm');
+      expect(videoProducer.enqueueProcessing).toHaveBeenCalledTimes(1);
+      expect(videoProducer.enqueueProcessing).toHaveBeenCalledWith(
+        'video-7',
+        'videos/video-7/source',
+      );
+      // uploaded write then queued write
+      expect(videoRepository.save).toHaveBeenCalledTimes(2);
+    });
+
+    it('enqueues while still uploaded so the job is published before the queued write', async () => {
+      const video = draftVideo();
+      videoRepository.findOneBy.mockResolvedValue(video);
+      channelRepository.findOneBy.mockResolvedValue({
+        id: 'channel-9',
+      } as Channel);
+      storageService.objectExists.mockResolvedValue(true);
+      storageService.headObject.mockResolvedValue({
+        size_bytes: 4096,
+        content_type: 'video/mp4',
+      });
+      let statusWhenEnqueued: VideoStatus | undefined;
+      videoProducer.enqueueProcessing.mockImplementation(() => {
+        statusWhenEnqueued = video.status;
+        return Promise.resolve();
+      });
+      videoRepository.save.mockImplementation((v: Video) => Promise.resolve(v));
+
+      await service.confirmUpload('user-1', 'video-7');
+
+      expect(statusWhenEnqueued).toBe(VideoStatus.UPLOADED);
+    });
+
+    it.each([
+      VideoStatus.QUEUED,
+      VideoStatus.PROCESSING,
+      VideoStatus.READY,
+      VideoStatus.FAILED,
+    ])(
+      'is idempotent for %s — returns current status without enqueuing',
+      async (status) => {
+        videoRepository.findOneBy.mockResolvedValue(draftVideo({ status }));
+        channelRepository.findOneBy.mockResolvedValue({
+          id: 'channel-9',
+        } as Channel);
+
+        const result = await service.confirmUpload('user-1', 'video-7');
+
+        expect(result).toEqual({ id: 'video-7', status });
+        expect(videoProducer.enqueueProcessing).not.toHaveBeenCalled();
+        expect(storageService.objectExists).not.toHaveBeenCalled();
+      },
+    );
   });
 });

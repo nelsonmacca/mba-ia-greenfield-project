@@ -4,16 +4,38 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
 import { ThrottlerStorage, ThrottlerStorageService } from '@nestjs/throttler';
+import { getQueueToken } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { AppModule } from '../src/app.module';
-import { AuthService } from '../src/auth/auth.service';
 import { DomainExceptionFilter } from '../src/common/filters/domain-exception.filter';
 import { ValidationExceptionFilter } from '../src/common/filters/validation-exception.filter';
 import { cleanAllTables } from '../src/test/create-test-data-source';
+import { MailService } from '../src/mail/mail.service';
+import {
+  VIDEO_PROCESSING_QUEUE,
+  type ProcessVideoJobData,
+} from '../src/videos/video-processing.constants';
+
+interface DraftBody {
+  id: string;
+  status: string;
+  object_key: string;
+  upload_url: string;
+}
+
+interface ErrorBody {
+  error: string;
+}
+
+interface LoginBody {
+  access_token: string;
+}
 
 describe('Videos (e2e)', () => {
   let app: INestApplication<App>;
   let dataSource: DataSource;
   let throttlerStorage: ThrottlerStorageService;
+  let queue: Queue<ProcessVideoJobData>;
 
   beforeAll(async () => {
     const moduleFixture = await Test.createTestingModule({
@@ -37,25 +59,28 @@ describe('Videos (e2e)', () => {
     dataSource = moduleFixture.get(DataSource);
     throttlerStorage =
       moduleFixture.get<ThrottlerStorageService>(ThrottlerStorage);
+    queue = moduleFixture.get(getQueueToken(VIDEO_PROCESSING_QUEUE));
   });
 
   afterAll(async () => {
+    await queue.obliterate({ force: true });
     await app.close();
   });
 
   beforeEach(async () => {
     await cleanAllTables(dataSource);
     throttlerStorage.storage.clear();
+    await queue.obliterate({ force: true });
   });
 
   async function registerConfirmAndLogin(email: string): Promise<string> {
-    const authService = app.get(AuthService);
-    const mailServiceInstance = (authService as any).mailService;
+    const mailService = app.get(MailService);
     let token = '';
     jest
-      .spyOn(mailServiceInstance, 'sendConfirmationEmail')
-      .mockImplementationOnce(async (_e: string, _n: string, t: string) => {
+      .spyOn(mailService, 'sendConfirmationEmail')
+      .mockImplementationOnce((_e: string, _n: string, t: string) => {
         token = t;
+        return Promise.resolve();
       });
     await request(app.getHttpServer())
       .post('/auth/register')
@@ -66,7 +91,7 @@ describe('Videos (e2e)', () => {
     const res = await request(app.getHttpServer())
       .post('/auth/login')
       .send({ email, password: 'password123' });
-    return res.body.access_token;
+    return (res.body as LoginBody).access_token;
   }
 
   const validBody = {
@@ -85,11 +110,12 @@ describe('Videos (e2e)', () => {
         .send(validBody)
         .expect(201);
 
-      expect(res.body.id).toBeDefined();
-      expect(res.body.status).toBe('draft');
-      expect(res.body.object_key).toBe(`videos/${res.body.id}/source`);
-      expect(typeof res.body.upload_url).toBe('string');
-      expect(res.body.upload_url).toContain('http');
+      const body = res.body as DraftBody;
+      expect(body.id).toBeDefined();
+      expect(body.status).toBe('draft');
+      expect(body.object_key).toBe(`videos/${body.id}/source`);
+      expect(typeof body.upload_url).toBe('string');
+      expect(body.upload_url).toContain('http');
     });
 
     it('returns 400 with FILE_TOO_LARGE when size exceeds the cap', async () => {
@@ -101,7 +127,7 @@ describe('Videos (e2e)', () => {
         .send({ ...validBody, size_bytes: 10 * 1024 * 1024 * 1024 + 1 })
         .expect(400);
 
-      expect(res.body.error).toBe('FILE_TOO_LARGE');
+      expect((res.body as ErrorBody).error).toBe('FILE_TOO_LARGE');
     });
 
     it('returns 401 without an Authorization header', async () => {
@@ -120,7 +146,7 @@ describe('Videos (e2e)', () => {
         .send({ filename: 'clip.mp4', size_bytes: 1024 })
         .expect(400);
 
-      expect(res.body.error).toBe('VALIDATION_ERROR');
+      expect((res.body as ErrorBody).error).toBe('VALIDATION_ERROR');
     });
 
     it('returns 400 with VALIDATION_ERROR on unknown extra field', async () => {
@@ -132,7 +158,98 @@ describe('Videos (e2e)', () => {
         .send({ ...validBody, admin: true })
         .expect(400);
 
-      expect(res.body.error).toBe('VALIDATION_ERROR');
+      expect((res.body as ErrorBody).error).toBe('VALIDATION_ERROR');
+    });
+  });
+
+  describe('POST /videos/:id/confirm', () => {
+    async function draftAndUpload(accessToken: string): Promise<string> {
+      const draftRes = await request(app.getHttpServer())
+        .post('/videos')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(validBody)
+        .expect(201);
+      const draft = draftRes.body as DraftBody;
+      await fetch(draft.upload_url, {
+        method: 'PUT',
+        headers: { 'content-type': 'video/mp4' },
+        body: 'fake-video-bytes',
+      });
+      return draft.id;
+    }
+
+    it('returns 200 with status queued and enqueues a job', async () => {
+      const accessToken = await registerConfirmAndLogin('confirm@example.com');
+      const id = await draftAndUpload(accessToken);
+
+      const res = await request(app.getHttpServer())
+        .post(`/videos/${id}/confirm`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      expect(res.body).toEqual({ id, status: 'queued' });
+      const jobs = await queue.getJobs(['waiting', 'delayed', 'active']);
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0].data).toEqual({
+        videoId: id,
+        objectKey: `videos/${id}/source`,
+      });
+    }, 30000);
+
+    it('returns 409 UPLOAD_NOT_CONFIRMED when the object was not uploaded', async () => {
+      const accessToken = await registerConfirmAndLogin('noobj@example.com');
+      const draftRes = await request(app.getHttpServer())
+        .post('/videos')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(validBody)
+        .expect(201);
+      const draftId = (draftRes.body as DraftBody).id;
+
+      const res = await request(app.getHttpServer())
+        .post(`/videos/${draftId}/confirm`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(409);
+
+      expect((res.body as ErrorBody).error).toBe('UPLOAD_NOT_CONFIRMED');
+    });
+
+    it('returns 403 FORBIDDEN_VIDEO_ACCESS for a non-owner', async () => {
+      const owner = await registerConfirmAndLogin('owner@example.com');
+      const id = await draftAndUpload(owner);
+      const stranger = await registerConfirmAndLogin('stranger@example.com');
+
+      const res = await request(app.getHttpServer())
+        .post(`/videos/${id}/confirm`)
+        .set('Authorization', `Bearer ${stranger}`)
+        .expect(403);
+
+      expect((res.body as ErrorBody).error).toBe('FORBIDDEN_VIDEO_ACCESS');
+    }, 30000);
+
+    it('returns 404 VIDEO_NOT_FOUND for an unknown id', async () => {
+      const accessToken = await registerConfirmAndLogin('nf@example.com');
+
+      const res = await request(app.getHttpServer())
+        .post('/videos/00000000-0000-0000-0000-000000000000/confirm')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(404);
+
+      expect((res.body as ErrorBody).error).toBe('VIDEO_NOT_FOUND');
+    });
+
+    it('returns 400 on a malformed (non-uuid) id', async () => {
+      const accessToken = await registerConfirmAndLogin('baduuid@example.com');
+
+      await request(app.getHttpServer())
+        .post('/videos/not-a-uuid/confirm')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(400);
+    });
+
+    it('returns 401 without an Authorization header', async () => {
+      await request(app.getHttpServer())
+        .post('/videos/00000000-0000-0000-0000-000000000000/confirm')
+        .expect(401);
     });
   });
 });

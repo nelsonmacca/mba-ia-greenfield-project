@@ -5,11 +5,14 @@ status: clean
 issue_count: 0
 sources_mtime:
   docs/phases/phase-03-videos/context.md: "2026-06-25T00:00:00-03:00"
+  docs/phases/phase-03-videos/phase-03-videos.md: "2026-06-25T00:00:00-03:00"
+  docs/phases/phase-03-videos/library-refs.md: "2026-06-25T00:00:00-03:00"
   docs/decisions/technical-decisions-phase-03-videos.md: "2026-06-25T00:00:00-03:00"
 issues: []
 advisories:
-  - "Worker FFmpeg wrapper library (e.g., fluent-ffmpeg) to be confirmed at implementation against installed versions (TD-04)."
-  - "Exact Video entity columns/indexes and API error-catalog additions are finalized during implementation, not in this documentation session."
+  - "context7 doc fetch is PENDING for all new libraries (MCP unavailable in planning session). Must be completed at the start of SI implementation per CLAUDE.md — fill context7_id/fetched_at and verified API notes in library-refs.md before coding."
+  - "Testing-guide reference `external-systems.md` describes object storage as a local-filesystem adapter for tests; Phase 03 supersedes this with real MinIO in Compose (TD-02) and the enunciado's 'real infra, no mocking what can run for real' rule. SIs test against real MinIO/Redis/FFmpeg. Not a conflict — the guide predates the TD and notes 'S3 in production'; flagged so reviewers expect real-infra integration tests."
+  - "BullMQ job options (attempts/backoff), re-confirm idempotency (SI-03.4), and worker re-delivery idempotency (SI-03.5) are intentionally fixed at implementation, not in the plan."
 ---
 
 # phase-03-videos — Validation
@@ -18,31 +21,46 @@ advisories:
 
 ### Inconsistencies
 
-_None._ All capabilities from `project-plan.md` → Fase 03 map to a decided TD (see Capability Coverage in `context.md`).
+_None._ All nine capabilities from `project-plan.md` → Fase 03 map to a decided TD (see Capability Coverage in `context.md`) and to at least one SI (see Deliverables ↔ SI mapping in `phase-03-videos.md`). The `status` enum (`draft/uploaded/queued/processing/ready/failed`) matches the enunciado's required lifecycle (`rascunho/uploaded/queued/processing/ready/failed`), with `draft = rascunho` justified.
 
 ### Ambiguities
 
-_None blocking._ The FFmpeg invocation wrapper and final entity/API field names are deferred to implementation by design (recorded as advisories), not as open decisions.
+_None blocking._ Remaining choices (FFmpeg wrapper API specifics, job option values, idempotency policy, exact field names) are deferred to implementation **by design** and recorded as advisories — they do not block starting implementation.
 
 ### Missing Decisions
 
-_None._ All six base architectural questions (upload strategy, storage provider, queue, worker topology, unique URL, delivery) are decided in `technical-decisions-phase-03-videos.md`.
+_None._ All six base architectural questions are decided. The enunciado's mandatory functional scope (video module, entity linked to channel, 10GB upload, draft pre-registration, object storage, queue, separate worker, FFmpeg metadata+thumbnail, status lifecycle, unique URL, streaming, download) is each covered by a specific SI.
 
 ### Dependency Gaps
 
-_None._ Phase 03 depends on Fase 01 (config/DB foundation) and Fase 02 (auth + channels), both completed. Videos attach to the channel created in Phase 02.
+_None._ Phase 03 depends on Fase 01 (config/DB foundation) and Fase 02 (auth + channels), both completed. The internal SI Dependency Map is acyclic and linearizable (SI-03.1 → 03.2 → 03.3 → 03.4 → 03.5 → 03.6/03.7 → 03.8).
 
 ### Inherited Constraint Conflicts
 
-_None._ Decisions reuse inherited conventions: namespaced `registerAs` config, Joi env validation, `synchronize: false` + CLI migrations, the `{ statusCode, error, message }` error contract, global `ValidationPipe`, global JWT guard, and Docker-Compose-service-name networking (Redis/MinIO hosts).
+_None._ Decisions reuse inherited conventions: namespaced `registerAs` config (+ new `storage`/`queue` namespaces), Joi env validation, `synchronize: false` + CLI migrations (with the `video_status` enum-cleanup lesson from `bb0010e`), the `{ statusCode, error, message }` error contract (extended with new codes), global `ValidationPipe`, global JWT guard (`@Public()` for watch endpoints), and Docker-Compose-service-name networking (`minio`, `redis`).
 
 ### Unresolved Open Questions
 
-_None for the base architecture._ The following are intentionally deferred (not blocking the plan): resumable/tus upload, RabbitMQ alternative, independent worker subproject, nanoid short slug, API-proxied fine-grained authz, adaptive bitrate/HLS — all recorded in the decisions doc's "Deferred / Future Evolutions" table.
+_None blocking the base architecture._ Deferred evolutions (tus, RabbitMQ, independent worker subproject, nanoid slug, API-proxied authz, HLS) are recorded in the decisions doc's "Deferred / Future Evolutions" table and are out of scope.
 
 ### UI Coverage Gaps
 
-Frontend upload and streaming-player surfaces are deferred to a later frontend phase (`next-frontend/`), consistent with the Phase 02 frontend-deferral pattern. Not a gap for this backend-focused phase.
+Frontend upload and player surfaces are deferred to a later frontend phase (`next-frontend/`), consistent with the backend-only scope of this phase and the Phase 02 deferral pattern. Not a gap.
+
+### Checklist Conformance (enunciado oficial)
+
+| Checklist item | Covered by |
+|----------------|------------|
+| Research/decisions before implementation | `technical-decisions-phase-03-videos.md` (TD-01..06) |
+| Planning docs: context/validation/phase/progress/library-refs | all present in `docs/phases/phase-03-videos/` + `library-refs.md` |
+| validation.md clean before implementing | this file — `status: clean`, `issue_count: 0` |
+| SIs + Technical Specifications + Dependency Map + Deliverables + Events/Messages | `phase-03-videos.md` (SI-03.1..03.8, Tech Specs, Events/Messages, Dep Map, Deliverables) |
+| Implementation SI-by-SI, updating progress.md | workflow defined; `progress.md` tracks per-SI status |
+| Update CLAUDE.md/docs with real videos section at the end | SI-03.8 |
+| Infra (storage+queue+worker) via Docker Compose with backend | SI-03.1 |
+| Tests exercise real Compose infra, no over-mocking | SI-03.3/03.4/03.5/03.7 (real MinIO/Redis/FFmpeg) |
+| DoD: npm test / test:e2e / tsc / lint | SI-03.8 + per-SI Expected validations |
+| 10GB not routed through API | TD-01 / SI-03.3 (presigned PUT) |
 
 ## Resolved Issues
 

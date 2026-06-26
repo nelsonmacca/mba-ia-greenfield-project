@@ -42,10 +42,10 @@ sources_mtime:
 
 | Ref | Source | Scope | Topic | Status | Decision | Libraries |
 |-----|--------|-------|-------|--------|----------|-----------|
-| phase-03-videos/TD-01 | technical-decisions-phase-03-videos.md | Cross-layer | Large-File Upload Strategy (10GB) | decided | A (Presigned URL direct to S3/MinIO) | @aws-sdk/client-s3, @aws-sdk/s3-request-presigner |
-| phase-03-videos/TD-02 | technical-decisions-phase-03-videos.md | Backend/Storage | Object Storage Provider | decided | A (MinIO dev / S3-compatible) | @aws-sdk/client-s3, @aws-sdk/s3-request-presigner |
-| phase-03-videos/TD-03 | technical-decisions-phase-03-videos.md | Cross-layer | Background Processing Queue | decided | A (BullMQ + Redis) | @nestjs/bullmq, bullmq |
-| phase-03-videos/TD-04 | technical-decisions-phase-03-videos.md | Architecture | Video Worker Topology (FFmpeg) | decided | A (Separate worker container, same codebase) | FFmpeg/ffprobe, fluent-ffmpeg (TBC at impl) |
+| phase-03-videos/TD-01 | technical-decisions-phase-03-videos.md | Cross-layer | Large-File Upload Strategy (10GB) | decided | A (Presigned URL direct to S3/MinIO) | @aws-sdk/client-s3@^3.1075.0, @aws-sdk/s3-request-presigner@^3.1075.0 |
+| phase-03-videos/TD-02 | technical-decisions-phase-03-videos.md | Backend/Storage | Object Storage Provider | decided | A (MinIO dev / S3-compatible) | @aws-sdk/client-s3@^3.1075.0, @aws-sdk/s3-request-presigner@^3.1075.0 |
+| phase-03-videos/TD-03 | technical-decisions-phase-03-videos.md | Cross-layer | Background Processing Queue | decided | A (BullMQ + Redis) | @nestjs/bullmq@^11.0.4, bullmq@^5.79.1 |
+| phase-03-videos/TD-04 | technical-decisions-phase-03-videos.md | Architecture | Video Worker Topology (FFmpeg) | decided | A (Separate worker container, same codebase) | FFmpeg/ffprobe (system), fluent-ffmpeg@^2.1.3, @types/fluent-ffmpeg@^2.1.28 |
 | phase-03-videos/TD-05 | technical-decisions-phase-03-videos.md | Backend | Unique Per-Video URL / Identifier | decided | A (UUID) | — |
 | phase-03-videos/TD-06 | technical-decisions-phase-03-videos.md | Cross-layer | Video Streaming & Download Delivery | decided | A (Presigned GET URLs, native Range) | @aws-sdk/s3-request-presigner |
 

@@ -1,0 +1,13 @@
+FROM node:25.6.0-slim
+
+# FFmpeg/ffprobe are system binaries required by the video worker (TD-04).
+# fluent-ffmpeg is only the JS wrapper and bundles no binary, so install them here.
+# This image is the worker build only — the API image stays slim without FFmpeg.
+RUN apt update && apt install -y procps curl ffmpeg
+
+WORKDIR /home/node/app
+
+USER node
+
+# Worker mode: runs the BullMQ consumer via the worker entrypoint, no HTTP listener.
+CMD [ "npm", "run", "start:worker:dev" ]

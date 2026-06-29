@@ -21,4 +21,19 @@ export const envValidationSchema = Joi.object({
   MAIL_PORT: Joi.number().default(1025),
   MAIL_FROM: Joi.string().default('"StreamTube" <noreply@streamtube.com>'),
   SWAGGER_ENABLED: Joi.string().valid('true', 'false').default('false'),
+  // Object storage (MinIO/S3 — TD-02)
+  STORAGE_ENDPOINT: Joi.string().uri().required(),
+  STORAGE_REGION: Joi.string().default('us-east-1'),
+  STORAGE_BUCKET: Joi.string().required(),
+  STORAGE_ACCESS_KEY: Joi.string().required(),
+  STORAGE_SECRET_KEY: Joi.string().required(),
+  STORAGE_FORCE_PATH_STYLE: Joi.string().valid('true', 'false').default('true'),
+  STORAGE_UPLOAD_URL_TTL: Joi.number().default(900),
+  STORAGE_DOWNLOAD_URL_TTL: Joi.number().default(3600),
+  STORAGE_MAX_UPLOAD_BYTES: Joi.number().default(10 * 1024 * 1024 * 1024),
+  // Queue broker (Redis for BullMQ — TD-03)
+  REDIS_HOST: Joi.string().default('redis'),
+  REDIS_PORT: Joi.number().default(6379),
+  // Worker mode toggle (TD-04) — the worker container sets this to 'true'
+  WORKER_MODE: Joi.string().valid('true', 'false').default('false'),
 });

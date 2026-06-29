@@ -21,6 +21,7 @@ import { Public } from '../auth/decorators/public.decorator';
 import type { JwtPayload } from '../auth/auth.types';
 import { CreateVideoDto } from './dto/create-video.dto';
 import { VideoResponseDto } from './dto/video-response.dto';
+import { VideoUrlResponseDto } from './dto/video-url-response.dto';
 import type { ConfirmUploadResult, CreateDraftResult } from './videos.service';
 import { VideosService } from './videos.service';
 
@@ -138,5 +139,71 @@ export class VideosController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<VideoResponseDto> {
     return this.videosService.getById(id);
+  }
+
+  @Get(':id/playback')
+  @Public()
+  @ApiOperation({
+    summary: 'Get a presigned streaming URL for a video',
+    description:
+      'Public. Returns a short-lived presigned GET URL for the video source ' +
+      'object. The client streams directly from storage (HTTP Range honoured ' +
+      'by storage); the API never proxies bytes. Requires the video to be ready.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Presigned streaming URL issued',
+    type: VideoUrlResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Video not found',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Video is not ready for playback',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  async playback(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<VideoUrlResponseDto> {
+    return this.videosService.getPlaybackUrl(id);
+  }
+
+  @Get(':id/download')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Get a presigned download URL for a video',
+    description:
+      'Authenticated. Returns a short-lived presigned GET URL with an ' +
+      'attachment content-disposition for the video source object. The client ' +
+      'downloads directly from storage; the API never proxies bytes. Requires ' +
+      'the video to be ready.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Presigned download URL issued',
+    type: VideoUrlResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Missing or invalid access token',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Video not found',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Video is not ready for download',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  async download(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<VideoUrlResponseDto> {
+    return this.videosService.getDownloadUrl(id);
   }
 }

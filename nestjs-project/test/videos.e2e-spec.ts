@@ -15,6 +15,7 @@ import {
   VIDEO_PROCESSING_QUEUE,
   type ProcessVideoJobData,
 } from '../src/videos/video-processing.constants';
+import { Video, VideoStatus } from '../src/videos/entities/video.entity';
 
 interface DraftBody {
   id: string;
@@ -296,6 +297,119 @@ describe('Videos (e2e)', () => {
 
     it('returns 400 on a malformed (non-uuid) id', async () => {
       await request(app.getHttpServer()).get('/videos/not-a-uuid').expect(400);
+    });
+  });
+
+  describe('playback & download', () => {
+    interface UrlBody {
+      url: string;
+    }
+
+    /** Drafts + uploads a real source object, then marks the video `ready`. */
+    async function createReadyVideo(
+      email: string,
+    ): Promise<{ id: string; accessToken: string }> {
+      const accessToken = await registerConfirmAndLogin(email);
+      const draftRes = await request(app.getHttpServer())
+        .post('/videos')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(validBody)
+        .expect(201);
+      const draft = draftRes.body as DraftBody;
+      await fetch(draft.upload_url, {
+        method: 'PUT',
+        headers: { 'content-type': 'video/mp4' },
+        body: 'fake-video-bytes',
+      });
+      await dataSource
+        .getRepository(Video)
+        .update({ id: draft.id }, { status: VideoStatus.READY });
+      return { id: draft.id, accessToken };
+    }
+
+    describe('GET /videos/:id/playback', () => {
+      it('returns a presigned URL (no auth) that serves bytes with HTTP Range → 206', async () => {
+        const { id } = await createReadyVideo('playback@example.com');
+
+        const res = await request(app.getHttpServer())
+          .get(`/videos/${id}/playback`)
+          .expect(200);
+
+        const { url } = res.body as UrlBody;
+        expect(typeof url).toBe('string');
+        expect(url).toContain('http');
+
+        const ranged = await fetch(url, { headers: { Range: 'bytes=0-3' } });
+        expect(ranged.status).toBe(206);
+      }, 30000);
+
+      it('returns 409 VIDEO_NOT_READY before the video is ready', async () => {
+        const accessToken = await registerConfirmAndLogin(
+          'notready@example.com',
+        );
+        const draftRes = await request(app.getHttpServer())
+          .post('/videos')
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(validBody)
+          .expect(201);
+        const id = (draftRes.body as DraftBody).id;
+
+        const res = await request(app.getHttpServer())
+          .get(`/videos/${id}/playback`)
+          .expect(409);
+
+        expect((res.body as ErrorBody).error).toBe('VIDEO_NOT_READY');
+      });
+
+      it('returns 404 VIDEO_NOT_FOUND for an unknown id', async () => {
+        const res = await request(app.getHttpServer())
+          .get('/videos/00000000-0000-0000-0000-000000000000/playback')
+          .expect(404);
+
+        expect((res.body as ErrorBody).error).toBe('VIDEO_NOT_FOUND');
+      });
+    });
+
+    describe('GET /videos/:id/download', () => {
+      it('returns a presigned download URL for an authenticated user', async () => {
+        const { id, accessToken } = await createReadyVideo(
+          'download@example.com',
+        );
+
+        const res = await request(app.getHttpServer())
+          .get(`/videos/${id}/download`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .expect(200);
+
+        const { url } = res.body as UrlBody;
+        expect(typeof url).toBe('string');
+        expect(url).toContain('http');
+      }, 30000);
+
+      it('returns 401 without an Authorization header', async () => {
+        await request(app.getHttpServer())
+          .get('/videos/00000000-0000-0000-0000-000000000000/download')
+          .expect(401);
+      });
+
+      it('returns 409 VIDEO_NOT_READY before the video is ready', async () => {
+        const accessToken = await registerConfirmAndLogin(
+          'dlnotready@example.com',
+        );
+        const draftRes = await request(app.getHttpServer())
+          .post('/videos')
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(validBody)
+          .expect(201);
+        const id = (draftRes.body as DraftBody).id;
+
+        const res = await request(app.getHttpServer())
+          .get(`/videos/${id}/download`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .expect(409);
+
+        expect((res.body as ErrorBody).error).toBe('VIDEO_NOT_READY');
+      });
     });
   });
 });

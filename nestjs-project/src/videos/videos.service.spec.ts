@@ -5,6 +5,7 @@ import {
   ForbiddenVideoAccessException,
   UploadNotConfirmedException,
   VideoNotFoundException,
+  VideoNotReadyException,
 } from '../common/exceptions/domain.exception';
 import storageConfig from '../config/storage.config';
 import { Channel } from '../channels/entities/channel.entity';
@@ -345,6 +346,109 @@ describe('VideosService (unit)', () => {
       });
       expect(storageService.getPresignedDownloadUrl).toHaveBeenCalledWith(
         'videos/video-7/thumbnail.jpg',
+      );
+    });
+  });
+
+  describe('getPlaybackUrl', () => {
+    function video(overrides: Partial<Video> = {}): Video {
+      return {
+        id: 'video-7',
+        status: VideoStatus.READY,
+        object_key: 'videos/video-7/source',
+        ...overrides,
+      } as Video;
+    }
+
+    it('throws VIDEO_NOT_FOUND for an unknown id', async () => {
+      videoRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.getPlaybackUrl('missing')).rejects.toBeInstanceOf(
+        VideoNotFoundException,
+      );
+      expect(storageService.getPresignedDownloadUrl).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      VideoStatus.DRAFT,
+      VideoStatus.UPLOADED,
+      VideoStatus.QUEUED,
+      VideoStatus.PROCESSING,
+      VideoStatus.FAILED,
+    ])('throws VIDEO_NOT_READY when status is %s', async (status) => {
+      videoRepository.findOneBy.mockResolvedValue(video({ status }));
+
+      await expect(service.getPlaybackUrl('video-7')).rejects.toBeInstanceOf(
+        VideoNotReadyException,
+      );
+      expect(storageService.getPresignedDownloadUrl).not.toHaveBeenCalled();
+    });
+
+    it('throws VIDEO_NOT_READY when a ready video has no object_key', async () => {
+      videoRepository.findOneBy.mockResolvedValue(video({ object_key: null }));
+
+      await expect(service.getPlaybackUrl('video-7')).rejects.toBeInstanceOf(
+        VideoNotReadyException,
+      );
+    });
+
+    it('returns a presigned GET URL for a ready video (no content-disposition)', async () => {
+      videoRepository.findOneBy.mockResolvedValue(video());
+      storageService.getPresignedDownloadUrl.mockResolvedValue(
+        'https://signed/playback',
+      );
+
+      const result = await service.getPlaybackUrl('video-7');
+
+      expect(result).toEqual({ url: 'https://signed/playback' });
+      expect(storageService.getPresignedDownloadUrl).toHaveBeenCalledWith(
+        'videos/video-7/source',
+      );
+    });
+  });
+
+  describe('getDownloadUrl', () => {
+    function video(overrides: Partial<Video> = {}): Video {
+      return {
+        id: 'video-7',
+        status: VideoStatus.READY,
+        object_key: 'videos/video-7/source',
+        ...overrides,
+      } as Video;
+    }
+
+    it('throws VIDEO_NOT_FOUND for an unknown id', async () => {
+      videoRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.getDownloadUrl('missing')).rejects.toBeInstanceOf(
+        VideoNotFoundException,
+      );
+      expect(storageService.getPresignedDownloadUrl).not.toHaveBeenCalled();
+    });
+
+    it('throws VIDEO_NOT_READY when the video is not ready', async () => {
+      videoRepository.findOneBy.mockResolvedValue(
+        video({ status: VideoStatus.PROCESSING }),
+      );
+
+      await expect(service.getDownloadUrl('video-7')).rejects.toBeInstanceOf(
+        VideoNotReadyException,
+      );
+      expect(storageService.getPresignedDownloadUrl).not.toHaveBeenCalled();
+    });
+
+    it('returns a presigned GET URL with an attachment content-disposition', async () => {
+      videoRepository.findOneBy.mockResolvedValue(video());
+      storageService.getPresignedDownloadUrl.mockResolvedValue(
+        'https://signed/download',
+      );
+
+      const result = await service.getDownloadUrl('video-7');
+
+      expect(result).toEqual({ url: 'https://signed/download' });
+      expect(storageService.getPresignedDownloadUrl).toHaveBeenCalledWith(
+        'videos/video-7/source',
+        { contentDisposition: 'attachment; filename="video-7"' },
       );
     });
   });

@@ -8,11 +8,13 @@ import {
   ForbiddenVideoAccessException,
   UploadNotConfirmedException,
   VideoNotFoundException,
+  VideoNotReadyException,
 } from '../common/exceptions/domain.exception';
 import { StorageService } from '../storage/storage.service';
 import { Channel } from '../channels/entities/channel.entity';
 import type { CreateVideoDto } from './dto/create-video.dto';
 import type { VideoResponseDto } from './dto/video-response.dto';
+import type { VideoUrlResponseDto } from './dto/video-url-response.dto';
 import { VideoProducerService } from './video-producer.service';
 import { Video, VideoStatus } from './entities/video.entity';
 
@@ -188,5 +190,51 @@ export class VideosService {
     }
 
     return response;
+  }
+
+  /**
+   * Issues a short-lived presigned GET URL for streaming the source object
+   * (SI-03.7 / TD-06). Public per the product rule that anonymous users may
+   * watch. The client/`<video>` fetches bytes directly from storage, which
+   * honours HTTP Range for streaming/seeking — the API never proxies bytes.
+   *
+   * Requires `status = ready`; otherwise throws `VIDEO_NOT_READY`.
+   */
+  async getPlaybackUrl(videoId: string): Promise<VideoUrlResponseDto> {
+    const objectKey = await this.requireReadySourceKey(videoId);
+    const url = await this.storageService.getPresignedDownloadUrl(objectKey);
+    return { url };
+  }
+
+  /**
+   * Issues a short-lived presigned GET URL for downloading the source object
+   * with an attachment content-disposition (SI-03.7 / TD-06). Authenticated
+   * (controller-level); no per-owner check at this layer — finer-grained
+   * authorization for private/unlisted videos is deferred to Phase 04+.
+   *
+   * Requires `status = ready`; otherwise throws `VIDEO_NOT_READY`.
+   */
+  async getDownloadUrl(videoId: string): Promise<VideoUrlResponseDto> {
+    const objectKey = await this.requireReadySourceKey(videoId);
+    const url = await this.storageService.getPresignedDownloadUrl(objectKey, {
+      contentDisposition: `attachment; filename="${videoId}"`,
+    });
+    return { url };
+  }
+
+  /**
+   * Loads a video and returns its source object key, enforcing existence
+   * (404 `VIDEO_NOT_FOUND`) and readiness (409 `VIDEO_NOT_READY`). A `ready`
+   * video always has an `object_key`; a missing one is treated as not-ready.
+   */
+  private async requireReadySourceKey(videoId: string): Promise<string> {
+    const video = await this.videoRepository.findOneBy({ id: videoId });
+    if (!video) {
+      throw new VideoNotFoundException();
+    }
+    if (video.status !== VideoStatus.READY || !video.object_key) {
+      throw new VideoNotReadyException();
+    }
+    return video.object_key;
   }
 }

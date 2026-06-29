@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
@@ -16,8 +17,10 @@ import {
 } from '@nestjs/swagger';
 import { ApiErrorEnvelope } from '../common/openapi/api-error-envelope.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import type { JwtPayload } from '../auth/auth.types';
 import { CreateVideoDto } from './dto/create-video.dto';
+import { VideoResponseDto } from './dto/video-response.dto';
 import type { ConfirmUploadResult, CreateDraftResult } from './videos.service';
 import { VideosService } from './videos.service';
 
@@ -110,5 +113,30 @@ export class VideosController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<ConfirmUploadResult> {
     return this.videosService.confirmUpload(user.sub, id);
+  }
+
+  @Get(':id')
+  @Public()
+  @ApiOperation({
+    summary: 'Get a video status and metadata',
+    description:
+      'Public read of a video. Returns its current processing status and ' +
+      'metadata; once processed, includes the duration and a short-lived ' +
+      'presigned thumbnail URL. Anonymous users may read freely.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Video status and metadata',
+    type: VideoResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Video not found',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<VideoResponseDto> {
+    return this.videosService.getById(id);
   }
 }

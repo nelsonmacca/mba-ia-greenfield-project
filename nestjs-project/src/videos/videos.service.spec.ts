@@ -26,7 +26,10 @@ describe('VideosService (unit)', () => {
   let storageService: jest.Mocked<
     Pick<
       StorageService,
-      'getPresignedUploadUrl' | 'objectExists' | 'headObject'
+      | 'getPresignedUploadUrl'
+      | 'getPresignedDownloadUrl'
+      | 'objectExists'
+      | 'headObject'
     >
   >;
   let videoProducer: jest.Mocked<
@@ -45,6 +48,7 @@ describe('VideosService (unit)', () => {
     };
     storageService = {
       getPresignedUploadUrl: jest.fn(),
+      getPresignedDownloadUrl: jest.fn(),
       objectExists: jest.fn(),
       headObject: jest.fn(),
     };
@@ -269,5 +273,79 @@ describe('VideosService (unit)', () => {
         expect(storageService.objectExists).not.toHaveBeenCalled();
       },
     );
+  });
+
+  describe('getById', () => {
+    const createdAt = new Date('2026-06-29T12:00:00.000Z');
+
+    function storedVideo(overrides: Partial<Video> = {}): Video {
+      return {
+        id: 'video-7',
+        channel_id: 'channel-9',
+        title: 'My clip',
+        status: VideoStatus.DRAFT,
+        object_key: 'videos/video-7/source',
+        thumbnail_key: null,
+        duration_seconds: null,
+        size_bytes: '1024',
+        content_type: 'video/mp4',
+        processing_error: null,
+        created_at: createdAt,
+        updated_at: createdAt,
+        ...overrides,
+      } as Video;
+    }
+
+    it('throws VIDEO_NOT_FOUND for an unknown id', async () => {
+      videoRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.getById('missing')).rejects.toBeInstanceOf(
+        VideoNotFoundException,
+      );
+    });
+
+    it('omits duration and thumbnail for a draft, never leaking storage keys', async () => {
+      videoRepository.findOneBy.mockResolvedValue(storedVideo());
+
+      const result = await service.getById('video-7');
+
+      expect(result).toEqual({
+        id: 'video-7',
+        status: VideoStatus.DRAFT,
+        title: 'My clip',
+        created_at: createdAt.toISOString(),
+      });
+      expect(result).not.toHaveProperty('object_key');
+      expect(result).not.toHaveProperty('thumbnail_url');
+      expect(result).not.toHaveProperty('duration_seconds');
+      expect(storageService.getPresignedDownloadUrl).not.toHaveBeenCalled();
+    });
+
+    it('includes duration and a presigned thumbnail URL for a ready video', async () => {
+      videoRepository.findOneBy.mockResolvedValue(
+        storedVideo({
+          status: VideoStatus.READY,
+          duration_seconds: 42,
+          thumbnail_key: 'videos/video-7/thumbnail.jpg',
+        }),
+      );
+      storageService.getPresignedDownloadUrl.mockResolvedValue(
+        'https://signed/thumb',
+      );
+
+      const result = await service.getById('video-7');
+
+      expect(result).toEqual({
+        id: 'video-7',
+        status: VideoStatus.READY,
+        title: 'My clip',
+        duration_seconds: 42,
+        thumbnail_url: 'https://signed/thumb',
+        created_at: createdAt.toISOString(),
+      });
+      expect(storageService.getPresignedDownloadUrl).toHaveBeenCalledWith(
+        'videos/video-7/thumbnail.jpg',
+      );
+    });
   });
 });

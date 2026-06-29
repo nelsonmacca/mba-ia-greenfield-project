@@ -12,6 +12,7 @@ import {
 import { StorageService } from '../storage/storage.service';
 import { Channel } from '../channels/entities/channel.entity';
 import type { CreateVideoDto } from './dto/create-video.dto';
+import type { VideoResponseDto } from './dto/video-response.dto';
 import { VideoProducerService } from './video-producer.service';
 import { Video, VideoStatus } from './entities/video.entity';
 
@@ -156,5 +157,36 @@ export class VideosService {
     await this.videoRepository.save(video);
 
     return { id: video.id, status: video.status };
+  }
+
+  /**
+   * Public read of a video's status and metadata (SI-03.6). Returns only
+   * safe-to-expose fields — internal storage keys are never leaked. When a
+   * thumbnail has been generated, a short-lived presigned GET URL is issued
+   * (TD-06); `duration_seconds`/`thumbnail_url` are omitted until present.
+   */
+  async getById(videoId: string): Promise<VideoResponseDto> {
+    const video = await this.videoRepository.findOneBy({ id: videoId });
+    if (!video) {
+      throw new VideoNotFoundException();
+    }
+
+    const response: VideoResponseDto = {
+      id: video.id,
+      status: video.status,
+      title: video.title,
+      created_at: video.created_at.toISOString(),
+    };
+
+    if (video.duration_seconds !== null) {
+      response.duration_seconds = video.duration_seconds;
+    }
+
+    if (video.thumbnail_key) {
+      response.thumbnail_url =
+        await this.storageService.getPresignedDownloadUrl(video.thumbnail_key);
+    }
+
+    return response;
   }
 }

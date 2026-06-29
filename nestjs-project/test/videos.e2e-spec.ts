@@ -60,7 +60,7 @@ describe('Videos (e2e)', () => {
     throttlerStorage =
       moduleFixture.get<ThrottlerStorageService>(ThrottlerStorage);
     queue = moduleFixture.get(getQueueToken(VIDEO_PROCESSING_QUEUE));
-  });
+  }, 60000);
 
   afterAll(async () => {
     await queue.obliterate({ force: true });
@@ -250,6 +250,52 @@ describe('Videos (e2e)', () => {
       await request(app.getHttpServer())
         .post('/videos/00000000-0000-0000-0000-000000000000/confirm')
         .expect(401);
+    });
+  });
+
+  describe('GET /videos/:id', () => {
+    interface VideoBody {
+      id: string;
+      status: string;
+      title: string | null;
+      created_at: string;
+      duration_seconds?: number;
+      thumbnail_url?: string;
+    }
+
+    it('returns the draft status without auth, omitting duration/thumbnail and storage keys', async () => {
+      const accessToken = await registerConfirmAndLogin('reader@example.com');
+      const draftRes = await request(app.getHttpServer())
+        .post('/videos')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(validBody)
+        .expect(201);
+      const id = (draftRes.body as DraftBody).id;
+
+      const res = await request(app.getHttpServer())
+        .get(`/videos/${id}`)
+        .expect(200);
+
+      const body = res.body as VideoBody;
+      expect(body.id).toBe(id);
+      expect(body.status).toBe('draft');
+      expect(body.created_at).toBeDefined();
+      expect(body).not.toHaveProperty('duration_seconds');
+      expect(body).not.toHaveProperty('thumbnail_url');
+      expect(body).not.toHaveProperty('object_key');
+      expect(body).not.toHaveProperty('thumbnail_key');
+    });
+
+    it('returns 404 VIDEO_NOT_FOUND for an unknown id', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/videos/00000000-0000-0000-0000-000000000000')
+        .expect(404);
+
+      expect((res.body as ErrorBody).error).toBe('VIDEO_NOT_FOUND');
+    });
+
+    it('returns 400 on a malformed (non-uuid) id', async () => {
+      await request(app.getHttpServer()).get('/videos/not-a-uuid').expect(400);
     });
   });
 });

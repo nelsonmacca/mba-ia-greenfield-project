@@ -400,22 +400,22 @@ Linearized order: SI-03.1 → SI-03.2 → SI-03.3 → SI-03.4 → SI-03.5 → SI
 
 ## Deliverables
 
-- [ ] Object storage integration (MinIO dev / S3-compatible) for video and thumbnail objects _(TD-02 / SI-03.1, 03.3)_
-- [ ] Presigned-URL upload flow supporting files up to 10GB without routing bytes through the API _(TD-01 / SI-03.3)_
-- [ ] `Video` entity + `CreateVideos` migration with the ingestion/processing `status` lifecycle _(TD-05 / SI-03.2)_
-- [ ] Draft pre-registration on upload initiation _(TD-01, TD-05 / SI-03.3)_
-- [ ] BullMQ + Redis queue; API publishes `process-video { videoId, objectKey }` on confirm _(TD-03 / SI-03.1, 03.4)_
-- [ ] Video Worker container (same codebase, worker mode) consuming jobs, running ffprobe/FFmpeg _(TD-04 / SI-03.1, 03.5)_
-- [ ] Automatic metadata extraction (duration) and thumbnail generation _(TD-04 / SI-03.5)_
-- [ ] Unique per-video URL via UUID, collision-free _(TD-05 / SI-03.2)_
-- [ ] Streaming playback via presigned GET URLs with native HTTP Range _(TD-06 / SI-03.7)_
-- [ ] Authenticated download via presigned GET URLs _(TD-06 / SI-03.7)_
-- [ ] CORS configured on the bucket for browser-direct uploads _(TD-01 / SI-03.1)_
-- [ ] Infra (storage + queue + worker) brought up via Docker Compose with the backend _(checklist §3 / SI-03.1)_
-- [ ] Tests exercise real Compose infra where possible (real MinIO, Redis, FFmpeg) _(checklist §3 / SI-03.3, 03.4, 03.5, 03.7)_
-- [ ] Real "Vídeos" section added to project docs, consistent with code _(checklist §1 / SI-03.8)_
-- [ ] All SI tests pass (`docker compose exec nestjs-api npm test -- --runInBand`)
-- [ ] E2E tests pass (`docker compose exec nestjs-api npm run test:e2e`)
-- [ ] Type/compilation check passes (`docker compose exec nestjs-api npx tsc --noEmit`)
-- [ ] Lint passes (`docker compose exec nestjs-api npm run lint`)
-- [ ] Project builds successfully (`docker compose exec nestjs-api npm run build`)
+- [x] Object storage integration (MinIO dev / S3-compatible) for video and thumbnail objects _(TD-02 / SI-03.1, 03.3)_
+- [x] Presigned-URL upload flow supporting files up to 10GB without routing bytes through the API _(TD-01 / SI-03.3)_
+- [x] `Video` entity + `CreateVideos` migration with the ingestion/processing `status` lifecycle _(TD-05 / SI-03.2)_
+- [x] Draft pre-registration on upload initiation _(TD-01, TD-05 / SI-03.3)_
+- [x] BullMQ + Redis queue; API publishes `process-video { videoId, objectKey }` on confirm _(TD-03 / SI-03.1, 03.4)_
+- [x] Video Worker container (same codebase, worker mode) consuming jobs, running ffprobe/FFmpeg _(TD-04 / SI-03.1, 03.5)_
+- [x] Automatic metadata extraction (duration) and thumbnail generation _(TD-04 / SI-03.5)_
+- [x] Unique per-video URL via UUID, collision-free _(TD-05 / SI-03.2)_
+- [x] Streaming playback via presigned GET URLs with native HTTP Range _(TD-06 / SI-03.7)_
+- [x] Authenticated download via presigned GET URLs _(TD-06 / SI-03.7)_
+- [x] CORS configured on the bucket for browser-direct uploads _(TD-01 / SI-03.1)_
+- [x] Infra (storage + queue + worker) brought up via Docker Compose with the backend _(checklist §3 / SI-03.1)_
+- [x] Tests exercise real Compose infra where possible (real MinIO, Redis, FFmpeg) _(checklist §3 / SI-03.3, 03.4, 03.5, 03.7)_
+- [x] Real "Vídeos" section added to project docs, consistent with code _(checklist §1 / SI-03.8)_
+- [x] All SI tests pass (`docker compose exec nestjs-api npm test -- --runInBand`)
+- [x] E2E tests pass (`docker compose exec nestjs-api npm run test:e2e`)
+- [x] Type/compilation check passes (`docker compose exec nestjs-api npx tsc --noEmit`)
+- [x] Lint passes (`docker compose exec nestjs-api npm run lint`)
+- [x] Project builds successfully (`docker compose exec nestjs-api npm run build`)

@@ -1,14 +1,14 @@
 # phase-03-videos — Progress
 
-**Status:** in progress
-**SIs:** 5/8 implemented — all 8 fully specified in `phase-03-videos.md`
+**Status:** done
+**SIs:** 8/8 implemented — all 8 fully specified in `phase-03-videos.md`
 
-> Documentation-only sessions so far: (1) technical decisions + initial plan (commit `d300a90`); (2) expansion of the SI outline into complete SIs with Technical Specifications, Events/Messages, Dependency Map, and Deliverables. **No application code, Docker Compose changes, or dependency installs have been made.**
+> SI-03.1 through SI-03.7 are implemented and committed (`f277eea`..`81a8b6c`); SI-03.8 closes the phase with final validation and documentation. The full Definition of Done passes (lint, tsc, unit+integration, e2e). Earlier planning history: (1) technical decisions + initial plan (commit `d300a90`); (2) expansion of the SI outline into complete SIs with Technical Specifications, Events/Messages, Dependency Map, and Deliverables.
 
 ## Decisions
 
 - Technical decisions recorded in `docs/decisions/technical-decisions-phase-03-videos.md` (TD-01..TD-06, all `decided`).
-- New libraries pinned in `library-refs.md` (versions probed from npm 2026-06-25); **context7 doc fetch is PENDING** and must be completed at the start of implementation (CLAUDE.md mandate; MCP was unavailable in the planning session).
+- New libraries pinned in `library-refs.md` (versions probed from npm 2026-06-25); context7 docs were fetched and verified during implementation (AWS SDK at SI-03.3, BullMQ at SI-03.4, fluent-ffmpeg at SI-03.5) against the installed versions.
 - Base flow: API (draft + presigned URL) → client → MinIO/S3 → API (confirm) → BullMQ/Redis (`process-video { videoId, objectKey }`) → Video Worker (FFmpeg) → status/metadata in PostgreSQL → presigned GET for streaming/download.
 
 ## Step Implementations (specified — not started)
@@ -72,8 +72,16 @@
 - **Validations (full DoD, all green):** full unit+integration suite **31 passed / 1 skipped (217 tests, 3 skipped)** — the skipped suite is the ffmpeg integration that runs only in the worker container (SI-03.5); full e2e suite **4 passed / 72 tests** (`auth`, `videos`, `swagger`, `app`); `npx tsc --noEmit` exits 0; `npm run lint` exits 0 (1 prettier issue found and fixed during the SI). The videos e2e exercises the playback Range→206 against real MinIO.
 
 ### SI-03.8 — Final Validation, Docs & Usage Section
-- **Status:** not started
-- **Tests:** full DoD suite (unit+integration, e2e, tsc, lint) + end-to-end smoke
+- **Status:** done (commit pending)
+- **Scope:** documentation consolidation + full Definition of Done. **No application code changed** — docs only.
+- **Files updated:** `README.md` (containers: removed "planejado/TBD" from Worker/Storage/Queue, now BullMQ+Redis / MinIO / video-worker as delivered; "Como rodar" notes MinIO/Redis/worker + the one-shot `createbuckets`; services table adds MinIO API/console, Redis, video-worker; new "Vídeos — upload e processamento (Fase 03)" section with the end-to-end flow + the 5 endpoints; project structure adds `videos/`/`storage/`/`queue/`/`Dockerfile.worker`; stack table adds AWS SDK/BullMQ/fluent-ffmpeg/MinIO/Redis/FFmpeg; phase table → Fase 03 "Concluída (backend)"), `nestjs-project/CLAUDE.md` (Services list adds mailpit/minio/createbuckets/redis/video-worker; new "Videos / Storage / Queue / Worker (Phase 03)" section: end-to-end flow, worker mode + `WORKER_MODE` gating, storage/queue env vars, and how to run the ffmpeg integration test in the `video-worker` container), `docs/phases/phase-03-videos/progress.md` (header → `Status: done`, `SIs: 8/8`; context7 note corrected from PENDING to done; this SI-03.8 block), `docs/phases/phase-03-videos/phase-03-videos.md` (Deliverables checklist marked complete).
+- **Decisions fixed at implementation:** README updated to the **completo** scope (per user direction) — reflects only what is implemented; HLS/transcoding, resumable upload (tus), and fine-grained private/unlisted authz are documented as out of scope / Phase 04+, not as delivered.
+- **Dependencies installed:** none. No migrations / Compose / Dockerfile / `.env` changes.
+- **Validations (full DoD, all green):** `npm run lint` exit 0; `npx tsc --noEmit` exit 0; full unit+integration **31 passed / 1 skipped (217 tests, 3 skipped)** — the skipped suite is the ffmpeg integration that runs only in the worker container; full e2e **4 passed / 72 tests** (`auth`, `videos`, `swagger`, `app`); the worker ffmpeg integration ran for real in the `video-worker` container (`video-processing.service.integration-spec.ts` — **3/3 passed**, real MinIO + FFmpeg + DB).
+
+## Phase 03 — Final summary
+
+SI-03.1 → SI-03.8 complete. Backend delivers: presigned-URL direct upload (≤10GB, bytes off the API — TD-01), MinIO/S3 object storage (TD-02), draft pre-registration, upload confirmation, BullMQ/Redis queue (TD-03), a separate Video Worker container running the same codebase in worker mode with ffprobe/FFmpeg (duration + thumbnail — TD-04), UUID per-video identity/keys (TD-05), public status/metadata read, and presigned-GET streaming (Range→206) + authenticated download (TD-06). Tests exercise real MinIO/Redis/PostgreSQL (and real FFmpeg in the worker). Frontend upload/player remains deferred to a later frontend phase.
 
 ## Open items carried into implementation
 

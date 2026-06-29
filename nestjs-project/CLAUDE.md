@@ -34,6 +34,11 @@ docker compose exec nestjs-api npm run start:dev
 Services:
 - `nestjs-api` — NestJS API, port `3000`
 - `db` — PostgreSQL 17, port `5432`, database `streamtube`, user/password `streamtube`
+- `mailpit` — SMTP capture + UI, ports `1025`/`8025`
+- `minio` — S3-compatible object storage, API `9000` / console `9001` (user/password `streamtube`)
+- `createbuckets` — one-shot init: creates the `streamtube-videos` bucket and sets the anonymous download policy, then exits
+- `redis` — BullMQ broker, port `6379`
+- `video-worker` — same codebase in worker mode (`WORKER_MODE=true`, `Dockerfile.worker` with FFmpeg/ffprobe); no HTTP port, consumes the `video-processing` queue
 
 All verification and teardown commands run on the **host machine**:
 
@@ -159,3 +164,47 @@ NestJS with standard module structure. Source lives in `src/`, compiled output i
 ## REST Conventions
 
 This is a RESTful API. All endpoints must follow standard REST conventions — correct HTTP methods, proper status codes, plural resource nouns, and consistent URL structure. Details are enforced via rules on controller files.
+
+## Videos / Storage / Queue / Worker (Phase 03)
+
+Phase 03 added video upload, processing, and delivery. The guiding rule (TD-01/TD-06): **file bytes never pass through the API** — the client uploads and downloads directly to/from object storage via presigned URLs, and heavy FFmpeg work runs in a separate worker container.
+
+End-to-end flow:
+
+```
+POST /videos (draft + presigned PUT URL) → client uploads bytes to MinIO/S3
+→ POST /videos/:id/confirm (validate object, enqueue) → BullMQ job { videoId, objectKey } → video-worker
+→ ffprobe (duration) + FFmpeg (thumbnail) → status/metadata in PostgreSQL
+→ GET /videos/:id (status) · GET /videos/:id/playback|download (presigned GET, HTTP Range)
+```
+
+Modules: `src/videos/` (entity, controller, service, BullMQ producer + worker processor, ffmpeg wrapper), `src/storage/` (S3/MinIO client + presigned URL service), `src/queue/` (BullMQ registration).
+
+### Worker mode
+
+The `video-worker` Compose service runs the **same codebase** with `WORKER_MODE=true`. The `@Processor(video-processing)` consumer is registered **only** when `WORKER_MODE=true` (`workerOnlyProviders` in `videos.module.ts`), so the API process never consumes jobs. The worker uses `Dockerfile.worker`, which installs the FFmpeg/ffprobe **system binaries** (`fluent-ffmpeg` is only the JS wrapper).
+
+```bash
+# Worker logs (consumes the video-processing queue)
+docker compose logs video-worker
+```
+
+### Storage / Queue env vars
+
+Defined in `.env.example`, validated by the Joi schema. Hosts use Compose service names (`minio`, `redis`), never `localhost`:
+
+- `STORAGE_ENDPOINT` (`http://minio:9000`), `STORAGE_REGION`, `STORAGE_BUCKET` (`streamtube-videos`), `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `STORAGE_FORCE_PATH_STYLE=true` (required for MinIO), `STORAGE_UPLOAD_URL_TTL`, `STORAGE_DOWNLOAD_URL_TTL`, `STORAGE_MAX_UPLOAD_BYTES` (10GB).
+- `REDIS_HOST` (`redis`), `REDIS_PORT` (`6379`).
+- `WORKER_MODE` — `false` for the API, `true` for the `video-worker` container.
+
+The `streamtube-videos` bucket is created on Compose startup by the one-shot `createbuckets` service.
+
+### Testing the FFmpeg path
+
+The real-FFmpeg integration test (`video-processing.service.integration-spec.ts`) needs the FFmpeg/ffprobe binaries, which exist **only in the `video-worker` image**. It self-detects the binaries and `describe.skip`s with a warning when absent — so `docker compose exec nestjs-api npm test` passes (skipping it). To exercise it for real, run it in the worker container:
+
+```bash
+docker compose exec video-worker npm test -- video-processing.service.integration
+```
+
+All other video unit/integration/e2e tests run in `nestjs-api` against real MinIO/Redis/PostgreSQL.

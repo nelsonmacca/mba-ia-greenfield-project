@@ -64,7 +64,21 @@ describe('Videos (e2e)', () => {
   }, 60000);
 
   afterAll(async () => {
+    // This suite enqueues real jobs onto the shared `video-processing` queue,
+    // which the video-worker consumes asynchronously (writing to the shared
+    // test DB). Tear the queue down deterministically before touching the DB
+    // or closing the app, otherwise in-flight/retried work and a leaked BullMQ
+    // Redis connection outlive this suite and break the next suite's FK-ordered
+    // table cleanup (e.g. auth.e2e).
+    await queue.pause();
+    // Removes waiting, delayed (retry backoff) and active jobs.
     await queue.obliterate({ force: true });
+    // obliterate() does not release the connection — close it explicitly so it
+    // does not dangle into the next suite (app.close() alone is not enough).
+    await queue.close();
+    // Leave the shared DB empty so no orphan videos/channels rows survive into
+    // the next suite's cleanup.
+    await cleanAllTables(dataSource);
     await app.close();
   });
 
